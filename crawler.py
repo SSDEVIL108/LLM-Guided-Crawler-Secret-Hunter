@@ -478,6 +478,55 @@ def ast_structure_aware_chunking(source_code, max_chunk_size=25000):
 
     return smart_chunks
 
+def load_existing_progress(filename):
+    """
+    State Persistence & Checkpoint Recovery:
+    Loads visited URLs and queued links from disk if the scan was interrupted.
+    """
+    checkpoint_file = f"{filename}.checkpoint.json"
+    visited_urls = set()
+    restored_queue = []
+
+    # Method 1: Load from dedicated JSON checkpoint file if available
+    if os.path.exists(checkpoint_file):
+        try:
+            with open(checkpoint_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                visited_urls = set(data.get("visited_urls", []))
+                restored_queue = [tuple(item) for item in data.get("to_visit_queue", [])]
+                print(f"🔄 Checkpoint found! Resuming scan: {len(visited_urls)} visited, {len(restored_queue)} queued.")
+                return visited_urls, restored_queue
+        except Exception as e:
+            print(f"⚠️ Warning loading checkpoint JSON: {e}")
+
+    # Method 2: Fallback parse visited nodes directly from existing Markdown report
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                content = f.read()
+                matches = re.findall(r"## 📍 NODE PAGE: `(.*?)`", content)
+                for u in matches:
+                    visited_urls.add(u)
+                if visited_urls:
+                    print(f"📄 Report file found! Recovered {len(visited_urls)} previously scanned URLs.")
+        except Exception as e:
+            print(f"⚠️ Warning reading markdown report: {e}")
+
+    return visited_urls, restored_queue
+
+def save_checkpoint(filename, visited_urls, to_visit_queue):
+    """Saves current crawling state to disk after each URL completes."""
+    checkpoint_file = f"{filename}.checkpoint.json"
+    try:
+        data = {
+            "visited_urls": list(visited_urls),
+            "to_visit_queue": [list(item) for item in to_visit_queue]
+        }
+        with open(checkpoint_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        pass
+
 # ==========================================
 # 4. LLM-GUIDED CRAWLER LOOP WITH GRAPHIFY & LIVE REPORTING
 # ==========================================
@@ -553,12 +602,23 @@ def crawling_website(start_url, max_depth, report_filename):
             # LIVE REPORTING: Append findings immediately to markdown file
             append_page_findings_to_report(report_filename, current_url, current_depth, script_files, page_links, analysis_outputs)
             print(f"  💾 Live report updated in `{report_filename}`")
+            
+            # Save checkpoint state for instant resume support
+            save_checkpoint(report_filename, visited_urls, to_visit_queue)
                 
             time.sleep(1)
             
         except Exception as e:
             print(f"  ❌ Failed to crawl {current_url}: {e}")
             
+    # Remove checkpoint file upon full completion
+    checkpoint_file = f"{report_filename}.checkpoint.json"
+    if os.path.exists(checkpoint_file):
+        try:
+            os.remove(checkpoint_file)
+        except Exception:
+            pass
+
     return visited_urls
 
 # ==========================================
