@@ -14,7 +14,7 @@ import os
 # CONFIGURATION & API SETUP
 # ==========================================
 # Securely load API Key from environment variable or prompt
-API_KEY = "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"
+API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
 if not API_KEY:
     print("🔑 NVIDIA_API_KEY environment variable not found.")
     API_KEY = input("Enter your NVIDIA NIM / API Key: ").strip()
