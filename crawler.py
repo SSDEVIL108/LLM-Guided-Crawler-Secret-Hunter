@@ -546,6 +546,40 @@ def save_checkpoint(filename, visited_urls, to_visit_queue):
     except Exception as e:
         pass
 
+BROWSER_HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Sec-Ch-Ua': '"Not/A)Brand";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': '"Windows"',
+    'Sec-Fetch-Dest': 'document',
+    'Sec-Fetch-Mode': 'navigate',
+    'Sec-Fetch-Site': 'none',
+    'Sec-Fetch-User': '?1',
+    'Upgrade-Insecure-Requests': '1'
+}
+
+def is_same_root_domain(target_netloc, base_domain):
+    """
+    Wildcard Subdomain Matching:
+    Allows crawling subdomains (e.g. cdn.grok.com, api.zoho.com) under the same root domain.
+    """
+    target_netloc = target_netloc.split(":")[0].lower()
+    base_domain = base_domain.split(":")[0].lower()
+    
+    if target_netloc == base_domain:
+        return True
+    
+    # Strip www / subdomains to match root domain (e.g. grok.com matches cdn.grok.com)
+    target_parts = target_netloc.split(".")
+    base_parts = base_domain.split(".")
+    
+    if len(target_parts) >= 2 and len(base_parts) >= 2:
+        return target_parts[-2:] == base_parts[-2:]
+        
+    return False
+
 # ==========================================
 # 4. LLM-GUIDED CRAWLER LOOP WITH GRAPHIFY & LIVE REPORTING
 # ==========================================
@@ -571,7 +605,7 @@ def crawling_website(start_url, max_depth, report_filename):
         print(f"\n🌐 [Depth {current_depth}/{max_depth}] Crawling: {current_url}")
         
         try:
-            response = requests.get(current_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            response = requests.get(current_url, headers=BROWSER_HEADERS, timeout=15)
             if response.status_code != 200:
                 print(f"  ❌ Page returned status code: {response.status_code}")
                 continue
@@ -593,7 +627,7 @@ def crawling_website(start_url, max_depth, report_filename):
             
             for link in real_links:
                 parsed = urllib.parse.urlparse(link)
-                if parsed.netloc == start_domain and parsed.scheme in ('http', 'https'):
+                if is_same_root_domain(parsed.netloc, start_domain) and parsed.scheme in ('http', 'https'):
                     if link not in visited_urls:
                         to_visit_queue.append((link, current_depth + 1))
                         all_urls.add(link)
@@ -604,7 +638,7 @@ def crawling_website(start_url, max_depth, report_filename):
             # Fetch & analyze loaded external JavaScript files directly
             for js_url in script_files[:5]: # Analyze top 5 critical loaded JS assets per page
                 try:
-                    js_resp = requests.get(js_url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=10)
+                    js_resp = requests.get(js_url, headers=BROWSER_HEADERS, timeout=10)
                     if js_resp.status_code == 200 and len(js_resp.text) > 50:
                         js_chunks = ast_structure_aware_chunking(js_resp.text, max_chunk_size=25000)
                         chunks.extend(js_chunks[:3]) # Add JS chunks to LLM queue
@@ -614,9 +648,18 @@ def crawling_website(start_url, max_depth, report_filename):
             # Parallel LLM Analysis
             analysis_outputs = process_chunks_in_parallel(chunks, max_workers=5)
             
-            # Record findings to Graphify Node
+            # Record findings to Graphify Node & Auto-Queue Discovered AI Endpoints
             for _, parsed in analysis_outputs:
                 add_edge_to_graph(current_url, "findings", parsed)
+                if isinstance(parsed, dict):
+                    discovered_endpoints = parsed.get("urls_and_endpoints", [])
+                    for ep in discovered_endpoints:
+                        full_ep_url = urllib.parse.urljoin(current_url, ep.strip())
+                        ep_parsed = urllib.parse.urlparse(full_ep_url)
+                        if is_same_root_domain(ep_parsed.netloc, start_domain) and ep_parsed.scheme in ('http', 'https'):
+                            if full_ep_url not in visited_urls:
+                                to_visit_queue.append((full_ep_url, current_depth + 1))
+                                all_urls.add(full_ep_url)
             
             # LIVE REPORTING: Append findings immediately to markdown file
             append_page_findings_to_report(report_filename, current_url, current_depth, script_files, page_links, analysis_outputs)
