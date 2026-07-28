@@ -499,16 +499,35 @@ def load_existing_progress(filename):
         except Exception as e:
             print(f"⚠️ Warning loading checkpoint JSON: {e}")
 
-    # Method 2: Fallback parse visited nodes directly from existing Markdown report
+    # Method 2: Fallback parse visited nodes AND unvisited links directly from existing Markdown report
     if os.path.exists(filename):
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 content = f.read()
-                matches = re.findall(r"## 📍 NODE PAGE: `(.*?)`", content)
-                for u in matches:
+                
+                # Extract visited pages and their recorded depths
+                visited_nodes = re.findall(r"## 📍 NODE PAGE: `(.*?)` \(Depth (\d+)\)", content)
+                node_depth_map = {}
+                for u, d in visited_nodes:
                     visited_urls.add(u)
+                    node_depth_map[u] = int(d)
+                
+                # Extract all outgoing link edges from the report
+                all_discovered_links = set(re.findall(r"└── `(https?://[^\`]+)`", content))
+                
+                # Rebuild queue with unvisited links
+                queued_urls = set()
+                for link in all_discovered_links:
+                    if link not in visited_urls and link not in queued_urls:
+                        # Find parent depth if possible, default to depth 1
+                        restored_queue.append((link, 1))
+                        queued_urls.add(link)
+
                 if visited_urls:
                     print(f"📄 Report file found! Recovered {len(visited_urls)} previously scanned URLs.")
+                if restored_queue:
+                    print(f"🔄 Rebuilt unvisited crawl queue: {len(restored_queue)} links ready to resume!")
+
         except Exception as e:
             print(f"⚠️ Warning reading markdown report: {e}")
 
