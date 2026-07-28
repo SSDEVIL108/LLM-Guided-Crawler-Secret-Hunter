@@ -13,8 +13,19 @@ import os
 # ==========================================
 # CONFIGURATION & API SETUP
 # ==========================================
-# Securely load API Key from environment variable or prompt
+# Securely load API Key from environment variable, config file, or prompt
 API_KEY = os.getenv("NVIDIA_API_KEY", "").strip()
+
+if not API_KEY and os.path.exists("human_hacker_config.json"):
+    try:
+        with open("human_hacker_config.json", "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+            API_KEY = cfg.get("nvidia_api_key", "").strip()
+            if API_KEY:
+                print("🔑 Loaded NVIDIA_API_KEY from human_hacker_config.json")
+    except Exception:
+        pass
+
 if not API_KEY:
     print("🔑 NVIDIA_API_KEY environment variable not found.")
     API_KEY = input("Enter your NVIDIA NIM / API Key: ").strip()
