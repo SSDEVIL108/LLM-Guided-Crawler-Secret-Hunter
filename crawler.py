@@ -187,28 +187,34 @@ def analyze_chunk_with_llm(chunk_data):
 
     model = random.choice(working_models_list)
 
-    prompt = f"""You are an elite web application security auditor. Analyze the source code snippet for developer mistakes, hidden configurations, and security exposures.
+    prompt = f"""You are a web application security auditor. Analyze the provided source code snippet to extract potential security exposures, configurations, and endpoints.
 
 CRITICAL FILTERING RULES:
-1. "urls_and_endpoints": Extract ONLY API routes, backend endpoints, JSON/data paths, cloud storage buckets (S3), or staging/dev subdomains.
-   - DO NOT include static images (.png, .jpg, .gif, .svg, .ico, .webp), fonts (.woff2, .ttf), or standard CSS files.
-2. "secrets_and_credentials": Extract ONLY actual sensitive items (e.g., API keys, private keys, database tokens, bearer credentials, custom auth tokens).
-   - DO NOT include Next.js build IDs, chunk hashes, asset filenames, or public tracking IDs.
-3. "developer_mistakes_and_leaks": Extract actionable security flaws, developer hints, and custom logic rules:
-   - Custom header requirements or authorization logic (e.g., `X-Internal-Token`, `X-Admin-Access`, custom headers used in fetch/XHR calls).
-   - Hidden URL parameters or debug query strings (e.g., `?devMode=true`, `?override=1`, `?admin=true`, `?bypass=true`).
-   - Developer notes/hints explaining custom routing, 403/401 access rules, internal test IPs, or status bypass conditions.
-   - Hardcoded debug/staging flags (`DEBUG=true`, `IS_STAGING=1`, `TEST_MODE=true`).
-   - Hardcoded staging/test subdomains (`staging.example.com`, `dev.target.com`).
-   - Internal IP addresses or internal domain mappings (`10.x.x.x`, `192.168.x.x`).
-   - DO NOT report standard jQuery methods (.html(), .append()), public support emails, or standard localization arrays as flaws!
 
-OUTPUT SCHEMA:
-Output ONLY a valid JSON object matching this schema without any markdown formatting or preamble:
+1. "urls_and_endpoints": Extract ONLY API routes, backend endpoints, JSON/data paths, cloud storage buckets (S3), or staging/dev subdomains.
+   - DO NOT include static images (.png, .jpg, .gif, .svg, .ico, .webp), fonts (.woff2, .ttf), standard CSS files, or common public CDNs (e.g., cdnjs, googleapis).
+   - If none are found, return an empty array [].
+
+2. "secrets_and_credentials": Extract ONLY actual sensitive items (e.g., active-looking API keys, private keys, database tokens, bearer credentials, custom auth tokens).
+   - DO NOT include placeholder strings, dummy keys (e.g., "YOUR_API_KEY", "foobar", "temp"), environment variable references (e.g., "process.env.SECRET"), Next.js build IDs, chunk hashes, or public tracking IDs.
+   - If none are found, return an empty array [].
+
+3. "developer_mistakes_and_leaks": Extract actionable security flaws, developer hints, and custom logic rules:
+   - Custom header requirements or authorization logic (e.g., custom headers used in fetch/XHR calls like `X-Internal-Token`).
+   - Hidden URL parameters or debug query strings (e.g., `?devMode=true`, `?bypass=true`).
+   - Developer notes/comments explaining custom routing, access rules, internal test IPs, or status bypass conditions.
+   - Hardcoded debug/staging flags (`DEBUG=true`, `IS_STAGING=1`).
+   - Internal IP addresses or internal domain mappings (`10.x.x.x`, `192.168.x.x`, `.local`).
+   - DO NOT report standard library helper functions, UI rendering logic, or standard localization strings.
+   - If none are found, return an empty array [].
+
+OUTPUT FORMAT:
+Return ONLY a raw, valid JSON object matching the schema below. Do not wrap the response in markdown code blocks, do not include any introductory or concluding text, and ensure the JSON is valid.
+
 {{
-  "urls_and_endpoints": ["/api/v1/user", "https://staging-api.example.com"],
-  "secrets_and_credentials": ["AKIAIOSFODNN7EXAMPLE"],
-  "developer_mistakes_and_leaks": ["DEBUG=true flag set in client code"]
+  "urls_and_endpoints": [],
+  "secrets_and_credentials": [],
+  "developer_mistakes_and_leaks": []
 }}
 
 --- CODE SNIPPET (Chunk #{chunk_index + 1}) ---
